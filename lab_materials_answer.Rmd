@@ -1,0 +1,411 @@
+---
+title: 'Lab 6: Subset Selection Method'
+author: "Jinnie Shin (jinnie.shin@ualberta.ca)"
+date: "October 16, 2019"
+output: learnr::tutorial
+runtime: shiny_prerendered
+---
+
+```{r setup, include=FALSE}
+library(learnr)
+library(ISLR)
+library(leaps)
+library(glmnet)
+library(pls)
+library(corrplot)
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+## Hitters Data
+*Here's the 'Hitters' dataset we will use in this lab.*
+
+```{r print-limit-hint}
+head(Hitters)
+```
+
+Remove Missing values (or NAs)
+```{r two-plus-two3, exercise=TRUE}
+data("Hitters")
+attach(Hitters) # Attach the dataset to your R 
+sum(is.na(Hitters$Salary)) 
+Hitters =na.omit(Hitters) # remove missing values 
+dim(Hitters) # 59 samples removed 
+```
+
+### Exercise with Code
+
+Write your code to identify the following inforatmion:
+(1) range of the **Salary** variable
+(2) highest correlation with the **Salary** variable 
+```{r add-function3, exercise=TRUE, exercise.lines = 15}
+#remove string variables "League", "Division", "NewLeague"
+Hitters= na.omit(Hitters)
+Hitters_new <- Hitters[, -c(14, 15, 20)]
+############### Your code goes here ######################
+#[1] Salary Variable Range 
+
+
+
+#[2] Correlation 
+
+
+
+###########################################################
+#corrplot(correlation_matrix, method='circle')
+```
+
+## Topic 1: Best Subset Selection 
+
+*This approach allows us to fit a separate least squares regression for each possible combination of the p predictors.*
+
+'**regsubsets**' creates a list of subset regression models. Each model consists of different combinations of variables. Using the Hitters data, we will generate a list of regression models to predict the outcome variable **"Salary"**
+
+1.**nvmax**: number of maximum regression subset models (default =8)
+2.**reg.summary$outmat**: An asterisk indicates that a given variable is included
+3.**evaluation metrics (or fit indices)**: *"rsq", "rss", "adjr2", "cp", "bic"*
+
+```{r two-plus-three,exercise=TRUE, exercise.lines =26}
+Hitters =na.omit(Hitters)
+# regsubset builds up to 19 subset models with various number of variables
+regfit.full = regsubsets(Salary~.,Hitters, nvmax = 19)
+# summary() provides information regarding the output matrix, fit indices, and coefficients 
+reg.summary = summary(regfit.full)
+reg.summary$rsq
+
+#best model selection based on adj.r2, cp, and bic 
+data.frame(
+  Adj.R2 = which.max(reg.summary$adjr2),
+  CP = which.min(reg.summary$cp),
+  BIC = which.min(reg.summary$bic)
+)
+
+# we can plot the model behaviours based on the number of variables 
+plot(reg.summary$adjr2,xlab="Number of Variables",ylab="Adjusted RSq",type="l")
+#which.max(reg.summary$adjr2)
+points(11,reg.summary$adjr2[11], col="blue",cex=2,pch=20)
+
+plot(reg.summary$cp,xlab="Number of Variables",ylab="Cp",type='l')
+#which.min(reg.summary$cp)
+points(10,reg.summary$cp[10],col="blue",cex=2,pch=20)
+
+plot(reg.summary$bic ,xlab="Number of Variables ",ylab="BIC", type='l')
+#which.min(reg.summary$bic )
+points (6,reg.summary$bic[6],col="blue",cex=2,pch =20)
+
+```
+
+### Exercise with Code
+
+Write a code to identify which variables were included for the following subset models:
+***(1) highest adjusted r-squared 
+(2) lowest Cp 
+(3) lowest BIC*** 
+
+```{r add-function, exercise=TRUE, exercise.lines = 10}
+Hitters =na.omit(Hitters)
+regfit.full = regsubsets(Salary~.,Hitters, nvmax = 19)
+reg.summary = summary(regfit.full)
+
+#Hint: reg.summary$outmat 
+#reg.summary$outmat[which.max(reg.summary$adjr2),]
+
+```
+
+### Practice Quiz
+
+```{r quiz}
+quiz(
+  question("According to the figures above, which of the following is **incorrect**?",
+    answer("BIC generally places a heavier penalty on models with many variables"),
+    answer("BIC generally chooses a model that contains more variables than Cp", correct= TRUE),
+    answer("The model with the lowest Cp will have the lowest testing error"),
+    answer("For logistic regression, the deviance can reaplace adjusted r-squared")
+  )
+)
+```
+
+## Topic 2: Stepwise Selection
+
+*Forward/Backward Stepwise Selection systematically increases the model fit by reducing the number of predictors in a model.*
+
+'**regsubsets**' allows the argument **"method"** to implement forward/backward stepwise selection.
+
+```{r three,exercise=TRUE, exercise.lines=7}
+Hitters =na.omit(Hitters)
+regfit.fwd=regsubsets(Salary~.,data=Hitters , nvmax=19, method ="forward")
+#summary(regfit.fwd)$outmat #uncomment this line to see the input features
+regfit.bwd=regsubsets(Salary~.,data=Hitters , nvmax=19, method ="backward")
+#summary(regfit.bwd)$outmat 
+coef(regfit.fwd, 7)
+coef(regfit.bwd, 7)
+```
+
+### Model selection using the Validation Set Approach
+We can use the validation errors to compare and locate the best-fitting model using the best subset seletcion or stepwise selection method. First, we begin by splitting the observations into a training set and a test set as before.
+```{r cv, exercise=TRUE, exercise.lines=24}
+Hitters =na.omit(Hitters)
+set.seed(1)
+
+train=sample(c(TRUE,FALSE), nrow(Hitters),rep=TRUE) #training sample
+test=(!train) #testing sample
+
+regfit.best=regsubsets(Salary~.,data=Hitters[train,],nvmax=19)
+test.mat=model.matrix(Salary~.,data=Hitters[test,])
+
+val.errors=rep(NA,19)
+for(i in 1:19){
+   coefi=coef(regfit.best,id=i)
+   pred=test.mat[,names(coefi)]%*%coefi
+   val.errors[i]=mean((Hitters$Salary[test]-pred)^2)}
+#get the coefficient of the model with the lowest validation errors 
+coef(regfit.best,which.min(val.errors))
+
+# Find the model with the smallest error
+min = which.min(val.errors)
+min
+
+# Plot the errors for each model size
+plot(val.errors, type = 'b')
+points(min, val.errors[min][1], col = "red", cex = 2, pch = 20)
+
+```
+
+### Model selection using Cross-Validation
+```{r k-fold cv,exercise=TRUE, exercise.lines =36}
+#define a new function that can predict from the saved coefficients 
+Hitters =na.omit(Hitters)
+
+k=10 # 10-fold CV 
+set.seed(1)
+#assign each observation to a single fold 
+folds=sample(1:k,nrow(Hitters),replace=TRUE)
+#create a matrix to store the results (or errors)
+cv.errors=matrix(NA,k,19, dimnames=list(NULL, paste(1:19)))
+for(j in 1:k){
+  best.fit=regsubsets(Salary~.,data=Hitters[folds!=j,],nvmax=19)
+  for(i in 1:19){
+    object=best.fit 
+    newdata=Hitters[folds==j,]
+    id=i
+    mat=model.matrix(Salary~.,newdata)
+    coefi=coef(object,id=id)
+    xvars=names(coefi)
+    pred2=mat[,xvars]%*%coefi
+    
+    cv.errors[j,i]=mean((Hitters$Salary[folds==j]-pred2)^2)
+    }
+  }
+mean.cv.errors=apply(cv.errors,2,mean)
+#mean.cv.errors #uncomment this line to see the average cv errors
+
+par(mfrow=c(1,1))
+# Find the model size with the smallest cross-validation error
+min = which.min(mean.cv.errors)
+min
+# Plot the cross-validation error for each model size, highlight the min
+plot(mean.cv.errors, type='b')
+points(min, mean.cv.errors[min][1], col = "red", cex = 2, pch = 20)
+
+reg.best=regsubsets(Salary~.,data=Hitters, nvmax=19)
+coef(reg.best,which.min(mean.cv.errors))
+```
+
+## Topic 3: Ridge Regression
+###Ridge Regression
+*Ridge regression Performs "L2 regularization", in other words adds a factor of sum of squares of coefficients in the optimization objective.*
+
+**Ridge Regression Objective**: RSS + Lambda (sum of square of coefficients)
+
+**Lambda = 0** -> Simple linear regression 
+
+**Lambda = *inf*** -> The coefficients will be pushed to zeros 
+
+```{r th,exercise=TRUE, exercise.lines=12}
+Hitters =na.omit(Hitters)
+x=model.matrix(Salary~.,Hitters)[,-1]
+y=Hitters$Salary
+
+grid=10^seq(10,-2,length=100) #provide a range of Lambda
+
+ridge.mod=glmnet(x,y,alpha=0,lambda=grid) #alpha = 0 ridge, alpha =1 lasso 
+dim(coef(ridge.mod)) # (1 intercept + 19 features) for 100 Lambda values 
+
+ridge.mod$lambda[50] # Lambda = 11497.57 (really large lambda)
+coef(ridge.mod)[,50] # coefficient approaching zeros 
+sqrt(sum(coef(ridge.mod)[-1,50]^2)) # l2 norm
+```
+
+### Lambda value and MSE 
+```{r ridge th,exercise=TRUE, exercise.lines=25}
+Hitters =na.omit(Hitters)
+x=model.matrix(Salary~.,Hitters)[,-1]
+y=Hitters$Salary
+grid=10^seq(10,-2,length=100)
+ridge.mod=glmnet(x,y,alpha=0,lambda=grid)
+
+set.seed(1)
+train=sample(1:nrow(x), nrow(x)/2)
+test=(-train)
+y.test=y[test]
+
+ridge.pred=predict(ridge.mod,s=0,newx=x[test,],exact=T,x=x[train,],y=y[train]) # Lambda = 0 
+lambda_0 = mean((ridge.pred-y.test)^2)
+
+ridge.mod=glmnet(x[train,],y[train],alpha=0,lambda=grid, thresh=1e-12)
+ridge.pred=predict(ridge.mod,s=4,newx=x[test,]) # Lambda = 4 (small lambda)
+lambda_4 = mean((ridge.pred-y.test)^2) # mean-squared error for the lambda 4 model
+
+ridge.pred=predict(ridge.mod,s=1e10,newx=x[test,]) # Lambda = 10^10
+lambda_large = mean((ridge.pred-y.test)^2) # mean-sqaured error for a very large lambda 
+only_intercept= mean((mean(y[train])-y.test)^2) # mean-sqaured error for the prediction only using intercepts as if the coefficients are zeros
+
+output <- data.frame("lambda" = c("0", "4", "1e10", "intercept"), 
+                     'MSE'= c(lambda_0, lambda_4, lambda_large, only_intercept))
+output
+```
+
+### CV to locate the best lambda 
+Instead of arbitrarily choosing Lambda = 4, it would be better to
+use cross-validation to choose the tuning parameter Lambda.
+```{r cvh,exercise=TRUE, exercise.lines=17}
+Hitters =na.omit(Hitters)
+x=model.matrix(Salary~.,Hitters)[,-1]
+y=Hitters$Salary
+grid=10^seq(10,-2,length=100)
+train=sample(1:nrow(x), nrow(x)/2)
+test=(-train)
+y.test=y[test]
+
+set.seed(1)
+cv.out=cv.glmnet(x[train,],y[train],alpha=0) #built-in CV function (default K = 10)
+plot(cv.out)
+bestlam=cv.out$lambda.min
+bestlam # best lambda value 
+
+ridge.mod=glmnet(x[train,],y[train],alpha=0,lambda=grid, thresh=1e-12)
+ridge.pred=predict(ridge.mod,s=bestlam,newx=x[test,])
+mean((ridge.pred-y.test)^2)
+
+out=glmnet(x,y,alpha=0) # refit our ridge regression model on the full data set
+predict(out,type="coefficients",s=bestlam)[1:20,]
+```
+### Practice Quiz
+
+```{r where-am-i, echo=FALSE}
+question("Select all the **correct** statement for ridge regression.",
+  answer("As Lambda increases, the flexibility of the regression fit increases."),
+  answer("As Lambda increases, the variance of the model decreases", correct=TRUE),
+  answer("When Lambda = 0, it equivalent to the least squares.", correct = TRUE),
+  answer("As Lambda increases, the bias of the model increases. significantly"),
+  answer("As Lambda increases(<inf), the number of predictors in the model decreases")
+)
+```
+
+## Topic 4: Lasso Regression
+###Lasso Regression
+*Lasso regression Performs "L1 regularization', in other words adds a factor of sum of absolute value of coefficients in the optimization objective.*
+
+**Lasso Regression Objective**: RSS + Lambda (sum of absolute values of coefficients)
+**Lambda = 0** -> Simple linear regression 
+**Lambda = *inf*** -> The coefficients will be pushed to zeros 
+
+```{r 1cvh,exercise=TRUE, exercise.lines=26}
+Hitters =na.omit(Hitters)
+x=model.matrix(Salary~.,Hitters)[,-1]
+y=Hitters$Salary
+train=sample(1:nrow(x), nrow(x)/2)
+test=(-train)
+y.test=y[test]
+
+grid=10^seq(10,-2,length=100)
+
+lasso.mod=glmnet(x[train,],y[train],alpha=1,lambda=grid) #alpha =1 for lasso 
+plot(lasso.mod)
+N_variables <- data.frame(table(lasso.mod[3]))
+names(N_variables)[1] <- "Non-zero features"
+N_variables 
+
+#cross validation for lasso regression model to locate lambda
+set.seed(1)
+cv.out=cv.glmnet(x[train,],y[train],alpha=1)
+plot(cv.out)
+bestlam=cv.out$lambda.min
+
+lasso.pred=predict(lasso.mod,s=bestlam,newx=x[test,])
+mean((lasso.pred-y.test)^2)
+
+out=glmnet(x,y,alpha=1,lambda=grid)
+lasso.coef=predict(out,type="coefficients",s=bestlam)[1:20,]
+lasso.coef
+#lasso.coef[lasso.coef!=0] output non-zero coefficients 
+```
+### Practice Quiz
+
+```{r where-am-i2, echo=FALSE}
+question("Select all the **correct** statement about lasso regression.",
+  answer("Unlike ridge regression, lasso can yield sparse models.", correct=TRUE),
+  answer("Lasso often provides simpler and more interpretable models than Ridge.", correct = TRUE),
+  answer("As Lambda increases, the variance of the model increases"),
+  answer("When the true coefficients are not zeros, ridge outperforms lasso.", correct= TRUE)
+)
+```
+
+## Topic 5: PCR & PLS Regression 
+
+### 1. PCR Regression 
+*PCR approach constructs a few number of principal components and use them as the predictors in a linear regression model*
+
+We willconduct principal Components regression analysis using *pcr()*
+
+**'scale=TRUE'**: Standardize each predictor (or features)
+**'validation='CV''**: Compute the 10-fold CV error for each possible value of M
+```{r pcr,exercise=TRUE, exercise.lines=23}
+Hitters =na.omit(Hitters)
+x=model.matrix(Salary~.,Hitters)[,-1]
+y=Hitters$Salary
+train=sample(1:nrow(x), nrow(x)/2)
+test=(-train)
+y.test=y[test]
+
+set.seed(2)
+pcr.fit=pcr(Salary~., data=Hitters,scale=TRUE,validation="CV") # default = 10 fold-CV
+summary(pcr.fit)
+validationplot(pcr.fit,val.type="MSEP")
+
+# partition training and testing dataset 
+set.seed(1)
+pcr.fit=pcr(Salary~., data=Hitters,subset=train,scale=TRUE, validation="CV")
+validationplot(pcr.fit,val.type="MSEP")
+
+pcr.pred=predict(pcr.fit,x[test,],ncomp=7)
+mean((pcr.pred-y.test)^2)
+
+# pcr on the full dataset 
+pcr.fit=pcr(y~x,scale=TRUE,ncomp=7)
+summary(pcr.fit)
+```
+
+### 2. PLS Regression 
+
+```{r pls ,exercise=TRUE, exercise.lines=19}
+# partition training and testing dataset 
+Hitters =na.omit(Hitters)
+x=model.matrix(Salary~.,Hitters)[,-1]
+y=Hitters$Salary
+train=sample(1:nrow(x), nrow(x)/2)
+test=(-train)
+y.test=y[test]
+
+set.seed(1)
+pls.fit=plsr(Salary~., data=Hitters,subset=train,scale=TRUE, validation="CV")
+summary(pls.fit)
+validationplot(pls.fit,val.type="MSEP")
+
+pls.pred=predict(pls.fit,x[test,],ncomp=2)
+mean((pls.pred-y.test)^2)
+
+# pls on the full dataset 
+pls.fit=plsr(Salary~., data=Hitters,scale=TRUE,ncomp=2)
+summary(pls.fit)
+
+```
